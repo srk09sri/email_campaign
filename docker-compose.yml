@@ -1,0 +1,25 @@
+services:
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  app:
+    build: .
+    environment:
+      - REDIS_ADDR=redis:6379
+      - S3_BUCKET=your-bucket-name          # <-- set to your real bucket name (no s3://, no slashes)
+      - AWS_REGION=ap-south-1               # <-- your bucket’s region
+      - AWS_ACCESS_KEY_ID=YOUR_KEY_ID
+      - AWS_SECRET_ACCESS_KEY=YOUR_SECRET
+      - AWS_SDK_LOAD_CONFIG=1               # lets SDK honor env/config if present
+      - WORKERS=10
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
+
+volumes:
+  redis-data:
