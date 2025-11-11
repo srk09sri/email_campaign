@@ -39,11 +39,14 @@ func (s *RedisQueueStore) RemoveFromProcessing(ctx context.Context, campaignID, 
 }
 
 func (s *RedisQueueStore) InitProgress(ctx context.Context, campaignID string, total int64) error {
-	return s.rdb.HSet(ctx, s.progressKey(campaignID), map[string]any{
-		"total":  total,
-		"sent":   0,
-		"failed": 0,
-	}).Err()
+	key := s.progressKey(campaignID)
+
+	pipe := s.rdb.TxPipeline()
+	pipe.HSet(ctx, key, "total", total)
+	pipe.HSetNX(ctx, key, "sent", 0)   
+	pipe.HSetNX(ctx, key, "failed", 0)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (s *RedisQueueStore) IncrProgress(ctx context.Context, campaignID, field string, delta int64) (int64, error) {

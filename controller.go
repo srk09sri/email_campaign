@@ -6,11 +6,15 @@ import (
 	"io"
 	"strings"
 	"time"
+	"os"
+	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/credentials"
+    "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types" 
+    "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 )
 
 type Controller struct {
@@ -22,6 +26,59 @@ type Controller struct {
 	s3Cli  *s3.Client
 	ps     *s3.PresignClient
 }
+
+func EnsureBucket(ctx context.Context, s3Cli *s3.Client, bucket string) {
+    _, err := s3Cli.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+    if err != nil {
+        _, err = s3Cli.CreateBucket(ctx, &s3.CreateBucketInput{
+            Bucket: aws.String(bucket),
+        })
+        if err != nil {
+            log.Fatalf("failed to create bucket: %v", err)
+        }
+        log.Printf("Created bucket: %s", bucket)
+    }
+}
+
+
+func NewS3Client() *s3.Client {
+    endpoint := os.Getenv("S3_ENDPOINT")
+    region := os.Getenv("AWS_REGION")
+    accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+    secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+    cfg, err := config.LoadDefaultConfig(context.TODO(),
+        config.WithRegion(region),
+        config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
+    )
+    if err != nil {
+        log.Fatalf("failed to load AWS config: %v", err)
+    }
+
+    if endpoint != "" {
+        cfg.BaseEndpoint = aws.String(endpoint)
+    }
+
+
+    return s3.NewFromConfig(cfg, func(o *s3.Options) {
+        o.UsePathStyle = true // Required for MinIO or local S3
+    })
+}
+
+func NewS3Presigner(cli *s3.Client) *s3.PresignClient {
+    public := os.Getenv("S3_PUBLIC_ENDPOINT")
+    if public == "" {
+        public = "http://localhost:9000" 
+    }
+
+    return s3.NewPresignClient(cli, func(po *s3.PresignOptions) {
+        po.ClientOptions = append(po.ClientOptions, func(o *s3.Options) {
+            o.BaseEndpoint = aws.String(public)
+            o.UsePathStyle = true
+        })
+    })
+}
+
 
 func NewController(store *RedisQueueStore, provider EmailProvider, workers int) *Controller {
 	return &Controller{store: store, provider: provider, workers: workers}

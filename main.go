@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
 )
@@ -30,13 +29,13 @@ func main() {
 		log.Fatalf("redis ping failed: %v", err)
 	}
 
-	// AWS config (S3)
-	awsCfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalf("aws cfg: %v", err)
-	}
 
-	// Build
+	s3Client := NewS3Client()
+
+
+	EnsureBucket(context.Background(), s3Client, os.Getenv("S3_BUCKET"))
+
+
 	store := NewRedisQueueStore(rdb)
 	// choose provider (mock or real)
 	var provider EmailProvider
@@ -45,13 +44,15 @@ func main() {
 	} else {
 		provider = NewMockProvider()
 	}
+
 	controller := NewController(store, provider, *workers)
-	controller.SetAWSConfig(awsCfg)
+	controller.s3Cli = s3Client
+	controller.ps = NewS3Presigner(s3Client)
 
 	// reconciler (heals stuck jobs + triggers retries)
 	go StartReconciler(controller, 30*time.Second)
 
-	// HTTP
+
 	r := mux.NewRouter()
 
 	// S3 multipart upload flow
